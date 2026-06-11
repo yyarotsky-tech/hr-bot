@@ -1,12 +1,9 @@
 import os
-import tempfile
-import whisper
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from datetime import datetime
-from telegraph import Telegraph
 
 load_dotenv()
 
@@ -17,30 +14,10 @@ API_KEY = os.getenv("API_KEY", "test_key_123")
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
 
-print("Loading Whisper model...")
-whisper_model = whisper.load_model("base")
-print("Whisper ready.")
+print("Bot started (light version, without Whisper).")
 
 user_sessions = {}
 
-# ---------- Telegraph ----------
-telegraph = Telegraph()
-telegraph.create_account(short_name='HR Absolute')
-
-def publish_to_telegraph(title, content):
-    try:
-        response = telegraph.create_page(
-            title=title,
-            html_content=f"<pre>{content}</pre>",
-            author_name='HR Absolute Bot',
-            author_url='https://t.me/tg_bot_recruiter_v2_bot'
-        )
-        return response['url']
-    except Exception as e:
-        print(f"Telegraph error: {e}")
-        return None
-
-# ---------- Форматирование ----------
 def format_report(report_text: str) -> str:
     report_text = report_text.replace("=== СООТВЕТСТВИЕ", "📌 СООТВЕТСТВИЕ")
     report_text = report_text.replace("=== АНАЛИЗ РЫНКА", "📊 АНАЛИЗ РЫНКА")
@@ -50,7 +27,6 @@ def format_report(report_text: str) -> str:
     report_text = report_text.replace("**", "")
     return report_text
 
-# ---------- Команды ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📄 Анализ", callback_data="analyze")],
@@ -70,31 +46,6 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_sessions.pop(user_id, None)
     await update.message.reply_text("✅ Сессия очищена")
-
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    audio = update.message.voice or update.message.audio
-    if not audio:
-        return
-    status = await update.message.reply_text("⏳ Скачиваю...")
-    suffix = ".ogg" if update.message.voice else ".mp3"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        file = await audio.get_file()
-        await file.download_to_drive(tmp.name)
-        tmp_path = tmp.name
-    try:
-        transcribed = whisper_model.transcribe(tmp_path, language="ru")["text"]
-        if not transcribed.strip():
-            await status.edit_text("❌ Речь не распознана")
-            return
-        if user_id not in user_sessions:
-            user_sessions[user_id] = {}
-        user_sessions[user_id]["transcribed_text"] = transcribed
-        await status.edit_text(f"✅ Аудио сохранено:\n{transcribed[:300]}...")
-    except Exception as e:
-        await status.edit_text(f"❌ Ошибка: {e}")
-    finally:
-        os.unlink(tmp_path)
 
 async def set_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -121,8 +72,8 @@ async def set_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = user_sessions.get(user_id, {})
-    if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
-        await update.message.reply_text("❌ Нет данных для сохранения")
+    if not any([data.get("vacancy_text"), data.get("resume_text")]):
+        await update.message.reply_text("❌ Нет данных для сохранения. Сначала отправьте /vacancy и /resume")
         return
     name = " ".join(context.args) if context.args else "Кандидат без имени"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
@@ -253,8 +204,8 @@ async def match_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = user_sessions.get(user_id, {})
-    if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
-        await update.message.reply_text("❌ Нет данных. Сначала отправьте аудио и/или /vacancy, /resume")
+    if not any([data.get("vacancy_text"), data.get("resume_text")]):
+        await update.message.reply_text("❌ Нет данных. Сначала отправьте /vacancy и /resume")
         return
     status_msg = await update.message.reply_text("🧠 Анализирую...")
     payload = {k: v for k, v in data.items() if v is not None}
@@ -265,28 +216,18 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r.status_code == 200:
             report = r.json().get("report", {}).get("full_report", "Нет отчёта")
             formatted = format_report(report)
-            if len(formatted) > 3000:
-                title = f"Анализ кандидата - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                url = publish_to_telegraph(title, formatted)
-                if url:
-                    await update.message.reply_text(
-                                f"📄 *Отчёт слишком длинный для Telegram*\n\n"
-                                f"👉 [Читать полный отчёт на Telegraph]({url})\n\n"
-                                f"📌 *Краткая выдержка:*\n{formatted[:500]}...",
-                                parse_mode="Markdown"
-                            )
-                else:
-                    parts = []
-                    rem = formatted
-                    while len(rem) > 4000:
-                        split = rem.rfind('\n\n', 0, 4000)
-                        if split == -1:
-                            split = 4000
-                        parts.append(rem[:split])
-                        rem = rem[split:]
-                    parts.append(rem)
-                    for i, part in enumerate(parts, 1):
-                        await update.message.reply_text(f"📄 Часть {i}/{len(parts)}\n\n{part}")
+            if len(formatted) > 4000:
+                parts = []
+                rem = formatted
+                while len(rem) > 4000:
+                    split = rem.rfind('\n\n', 0, 4000)
+                    if split == -1:
+                        split = 4000
+                    parts.append(rem[:split])
+                    rem = rem[split:]
+                parts.append(rem)
+                for i, part in enumerate(parts, 1):
+                    await update.message.reply_text(f"📄 Часть {i}/{len(parts)}\n\n{part}")
             else:
                 await update.message.reply_text(formatted)
             await status_msg.delete()
@@ -346,7 +287,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🤝 /volunteer")
     elif data == "help":
         await query.edit_message_text(
-            "📋 *Команды*\n"
+            "📋 Команды:\n"
             "/analyze - анализ\n"
             "/vacancies - вакансии\n"
             "/candidates - кандидаты\n"
@@ -372,9 +313,8 @@ def main():
     app.add_handler(CommandHandler("delete_vacancy", delete_vacancy))
     app.add_handler(CommandHandler("match_all", match_all))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("Bot started.")
+    print("Bot started (light version, no audio).")
     app.run_polling()
 
 if __name__ == "__main__":

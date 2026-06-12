@@ -1,3 +1,4 @@
+
 import os
 import requests
 from dotenv import load_dotenv
@@ -298,6 +299,121 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/reset - очистить"
         )
 
+async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "🤝 *Добавление волонтёрской вакансии*\n\n"
+            "Использование:\n"
+            "/add_volunteer <название> | <описание> | <требования> | <организация>\n\n"
+            "Пример:\n"
+            "/add_volunteer Помощь в приюте | Уборка, кормление | Ответственность | Добросерд",
+            parse_mode="Markdown"
+        )
+        return
+    
+    title = args[0]
+    desc = " ".join(args[1:]) if len(args) > 1 else ""
+    
+    headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
+    payload = {"title": title, "description": desc}
+    
+    try:
+        r = requests.post(f"{API_URL}/api/volunteer/add", json=payload, headers=headers, timeout=30)
+        if r.status_code == 200:
+            await update.message.reply_text(f"✅ Волонтёрская вакансия «{title}» добавлена")
+        else:
+            await update.message.reply_text(f"❌ Ошибка: {r.status_code}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+
+async def list_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    headers = {"X-API-Key": API_KEY}
+    try:
+        r = requests.get(f"{API_URL}/api/volunteer", headers=headers, timeout=30)
+        if r.status_code == 200:
+            vacs = r.json()
+            if not vacs:
+                await update.message.reply_text("🤝 Волонтёрских вакансий пока нет")
+                return
+            msg = "🤝 *Волонтёрские вакансии:*\n\n"
+            for v in vacs:
+                msg += f"🆔 `{v['id']}` — *{v['title']}*\n"
+                if v.get('description'):
+                    msg += f"   📝 {v['description'][:100]}...\n"
+                if v.get('organization'):
+                    msg += f"   🏢 {v['organization']}\n"
+                msg += "\n"
+            await update.message.reply_text(msg, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(f"❌ Ошибка: {r.status_code}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "🤝 *Оценка сотрудника*\n\n"
+            "Использование:\n"
+            "/assess_employee <имя> <должность> | <текст>\n\n"
+            "Пример:\n"
+            "/assess_employee Иван Петров Python разработчик | Иван хорошо работает, но боится ответственности",
+            parse_mode="Markdown"
+        )
+        return
+    
+    text = " ".join(args)
+    if " | " in text:
+        name_duty, raw_text = text.split(" | ", 1)
+        name_parts = name_duty.split(" ", 1)
+        if len(name_parts) == 2:
+            employee_name = name_parts[0]
+            position = name_parts[1]
+        else:
+            employee_name = name_parts[0]
+            position = "не указана"
+    else:
+        employee_name = args[0]
+        position = "не указана"
+        raw_text = " ".join(args[1:])
+    
+    headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
+    payload = {
+        "employee_name": employee_name,
+        "position": position,
+        "raw_text": raw_text
+    }
+    
+    status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
+    
+    try:
+        response = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
+        if response.status_code == 200:
+            data = response.json()
+            assessment = data["assessment"]
+            
+            message = f"📊 *Оценка сотрудника: {employee_name}*\n\n"
+            message += f"📋 *Должность:* {position}\n\n"
+            message += "📈 *Оценки (1-10):*\n"
+            message += f"   🦁 Лидерские качества: {assessment['leadership_score']}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {assessment['stress_resilience_score']}/10\n"
+            message += f"   💬 Коммуникабельность: {assessment['communication_score']}/10\n"
+            message += f"   📚 Обучаемость: {assessment['learnability_score']}/10\n"
+            message += f"   🎯 Ответственность: {assessment['responsibility_score']}/10\n\n"
+            message += f"✅ *Сильные стороны:* {assessment['strengths']}\n\n"
+            message += f"📈 *Зоны роста:* {assessment['growth_points']}\n\n"
+            message += f"💡 *Рекомендации:* {assessment['recommendations']}\n\n"
+            message += f"⚠️ *Риск выгорания:* {assessment['burnout_risk']}"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка: {e}")
+
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -312,6 +428,9 @@ def main():
     app.add_handler(CommandHandler("vacancies", list_vacancies))
     app.add_handler(CommandHandler("delete_vacancy", delete_vacancy))
     app.add_handler(CommandHandler("match_all", match_all))
+    app.add_handler(CommandHandler("add_volunteer", add_volunteer))
+    app.add_handler(CommandHandler("volunteer", list_volunteer))
+    app.add_handler(CommandHandler("assess_employee", assess_employee))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot started (light version, no audio).")
@@ -319,3 +438,68 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "🤝 *Оценка сотрудника*\n\n"
+            "Использование:\n"
+            "/assess_employee <имя> <должность> | <текст>\n\n"
+            "Пример:\n"
+            "/assess_employee Иван Петров Python разработчик | Иван хорошо работает, но боится ответственности",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Парсим аргументы
+    text = " ".join(args)
+    if " | " in text:
+        name_duty, raw_text = text.split(" | ", 1)
+        name_parts = name_duty.split(" ", 1)
+        if len(name_parts) == 2:
+            employee_name = name_parts[0] + " " + name_parts[1].split()[0] if " " in name_parts[1] else name_parts[1]
+            position = name_parts[1]
+        else:
+            employee_name = name_parts[0]
+            position = "не указана"
+    else:
+        employee_name = args[0]
+        position = "не указана"
+        raw_text = " ".join(args[1:])
+    
+    headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
+    payload = {
+        "employee_name": employee_name,
+        "position": position,
+        "raw_text": raw_text
+    }
+    
+    status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
+    
+    try:
+        response = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
+        if response.status_code == 200:
+            data = response.json()
+            assessment = data["assessment"]
+            
+            message = f"📊 *Оценка сотрудника: {employee_name}*\n\n"
+            message += f"📋 *Должность:* {position}\n\n"
+            message += "📈 *Оценки (1-10):*\n"
+            message += f"   🦁 Лидерские качества: {assessment['leadership_score']}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {assessment['stress_resilience_score']}/10\n"
+            message += f"   💬 Коммуникабельность: {assessment['communication_score']}/10\n"
+            message += f"   📚 Обучаемость: {assessment['learnability_score']}/10\n"
+            message += f"   🎯 Ответственность: {assessment['responsibility_score']}/10\n\n"
+            message += f"✅ *Сильные стороны:* {assessment['strengths']}\n\n"
+            message += f"📈 *Зоны роста:* {assessment['growth_points']}\n\n"
+            message += f"💡 *Рекомендации:* {assessment['recommendations']}\n\n"
+            message += f"⚠️ *Риск выгорания:* {assessment['burnout_risk']}"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка: {e}")

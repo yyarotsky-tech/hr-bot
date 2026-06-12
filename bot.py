@@ -1,6 +1,4 @@
 import os
-import tempfile
-import whisper
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,9 +13,7 @@ API_KEY = os.getenv("API_KEY", "test_key_123")
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
 
-print("Loading Whisper model...")
-whisper_model = whisper.load_model("base")
-print("Whisper ready.")
+print("Bot started (light version, without Whisper).")
 
 user_sessions = {}
 
@@ -50,36 +46,11 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions.pop(user_id, None)
     await update.message.reply_text("✅ Сессия очищена")
 
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    audio = update.message.voice or update.message.audio
-    if not audio:
-        return
-    status = await update.message.reply_text("⏳ Скачиваю...")
-    suffix = ".ogg" if update.message.voice else ".mp3"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        file = await audio.get_file()
-        await file.download_to_drive(tmp.name)
-        tmp_path = tmp.name
-    try:
-        transcribed = whisper_model.transcribe(tmp_path, language="ru")["text"]
-        if not transcribed.strip():
-            await status.edit_text("❌ Речь не распознана")
-            return
-        if user_id not in user_sessions:
-            user_sessions[user_id] = {}
-        user_sessions[user_id]["transcribed_text"] = transcribed
-        await status.edit_text(f"✅ Аудио сохранено:\n{transcribed[:300]}...")
-    except Exception as e:
-        await status.edit_text(f"❌ Ошибка: {e}")
-    finally:
-        os.unlink(tmp_path)
-
 async def set_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = " ".join(context.args)
     if not text:
-        await update.message.reply_text("❓ Использование: /vacancy <текст>")
+        await update.message.reply_text("❓ /vacancy <текст>")
         return
     if user_id not in user_sessions:
         user_sessions[user_id] = {}
@@ -90,7 +61,7 @@ async def set_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = " ".join(context.args)
     if not text:
-        await update.message.reply_text("❓ Использование: /resume <текст>")
+        await update.message.reply_text("❓ /resume <текст>")
         return
     if user_id not in user_sessions:
         user_sessions[user_id] = {}
@@ -100,7 +71,7 @@ async def set_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = user_sessions.get(user_id, {})
-    if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
+    if not any([data.get("vacancy_text"), data.get("resume_text")]):
         await update.message.reply_text("❌ Нет данных для сохранения")
         return
     name = " ".join(context.args) if context.args else "Кандидат без имени"
@@ -147,7 +118,7 @@ async def rate_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
         r = requests.post(f"{API_URL}/api/rate", json={"candidate_id": cid, "rating": rating, "comment": comment}, headers=headers, timeout=30)
         if r.status_code == 200:
-            await update.message.reply_text(f"✅ Оценка {rating} для кандидата {cid} сохранена")
+            await update.message.reply_text(f"✅ Оценка {rating} для {cid}")
         else:
             await update.message.reply_text(f"❌ Ошибка: {r.status_code}")
     except Exception as e:
@@ -267,7 +238,7 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) < 1:
-        await update.message.reply_text("🤝 /add_volunteer <название> | <описание>")
+        await update.message.reply_text("🤝 /add_volunteer <название>")
         return
     title = args[0]
     desc = " ".join(args[1:]) if len(args) > 1 else ""
@@ -333,37 +304,31 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
         raw_text = " ".join(args[1:])
     
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-    payload = {
-        "employee_name": employee_name,
-        "position": position,
-        "raw_text": raw_text
-    }
+    payload = {"employee_name": employee_name, "position": position, "raw_text": raw_text}
     
     status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
     
     try:
-        response = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
-        if response.status_code == 200:
-            data = response.json()
-            assessment = data["assessment"]
-            
+        r = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
+        if r.status_code == 200:
+            data = r.json()
+            a = data["assessment"]
             message = f"📊 *Оценка сотрудника: {employee_name}*\n\n"
             message += f"📋 *Должность:* {position}\n\n"
             message += "📈 *Оценки (1-10):*\n"
-            message += f"   🦁 Лидерские качества: {assessment['leadership_score']}/10\n"
-            message += f"   🧠 Стрессоустойчивость: {assessment['stress_resilience_score']}/10\n"
-            message += f"   💬 Коммуникабельность: {assessment['communication_score']}/10\n"
-            message += f"   📚 Обучаемость: {assessment['learnability_score']}/10\n"
-            message += f"   🎯 Ответственность: {assessment['responsibility_score']}/10\n\n"
-            message += f"✅ *Сильные стороны:* {assessment['strengths']}\n\n"
-            message += f"📈 *Зоны роста:* {assessment['growth_points']}\n\n"
-            message += f"💡 *Рекомендации:* {assessment['recommendations']}\n\n"
-            message += f"⚠️ *Риск выгорания:* {assessment['burnout_risk']}"
-            
+            message += f"   🦁 Лидерские качества: {a['leadership_score']}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {a['stress_resilience_score']}/10\n"
+            message += f"   💬 Коммуникабельность: {a['communication_score']}/10\n"
+            message += f"   📚 Обучаемость: {a['learnability_score']}/10\n"
+            message += f"   🎯 Ответственность: {a['responsibility_score']}/10\n\n"
+            message += f"✅ *Сильные стороны:* {a['strengths']}\n\n"
+            message += f"📈 *Зоны роста:* {a['growth_points']}\n\n"
+            message += f"💡 *Рекомендации:* {a['recommendations']}\n\n"
+            message += f"⚠️ *Риск выгорания:* {a['burnout_risk']}"
             await update.message.reply_text(message, parse_mode="Markdown")
             await status_msg.delete()
         else:
-            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+            await status_msg.edit_text(f"❌ Ошибка: {r.status_code}")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
 
@@ -437,9 +402,8 @@ def main():
     app.add_handler(CommandHandler("volunteer", list_volunteer))
     app.add_handler(CommandHandler("assess_employee", assess_employee))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("Bot started (light version, no audio).")
+    print("Bot started.")
     app.run_polling()
 
 if __name__ == "__main__":

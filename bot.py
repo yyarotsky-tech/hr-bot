@@ -440,36 +440,6 @@ if __name__ == "__main__":
     main()
 
 
-async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text(
-            "🤝 *Оценка сотрудника*\n\n"
-            "Использование:\n"
-            "/assess_employee <имя> <должность> | <текст>\n\n"
-            "Пример:\n"
-            "/assess_employee Иван Петров Python разработчик | Иван хорошо работает, но боится ответственности",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # Парсим аргументы
-    text = " ".join(args)
-    if " | " in text:
-        name_duty, raw_text = text.split(" | ", 1)
-        name_parts = name_duty.split(" ", 1)
-        if len(name_parts) == 2:
-            employee_name = name_parts[0] + " " + name_parts[1].split()[0] if " " in name_parts[1] else name_parts[1]
-            position = name_parts[1]
-        else:
-            employee_name = name_parts[0]
-            position = "не указана"
-    else:
-        employee_name = args[0]
-        position = "не указана"
-        raw_text = " ".join(args[1:])
-    
-    headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     payload = {
         "employee_name": employee_name,
         "position": position,

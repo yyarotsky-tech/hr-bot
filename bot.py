@@ -13,7 +13,7 @@ API_KEY = os.getenv("API_KEY", "test_key_123")
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
 
-print("Bot started (light version, without Whisper).")
+print("Bot started (light version, no Whisper).")
 
 user_sessions = {}
 

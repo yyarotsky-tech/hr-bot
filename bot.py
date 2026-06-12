@@ -1,10 +1,10 @@
-
 import os
+import tempfile
+import whisper
 import requests
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from datetime import datetime
 
 load_dotenv()
 
@@ -15,7 +15,9 @@ API_KEY = os.getenv("API_KEY", "test_key_123")
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
 
-print("Bot started (light version, without Whisper).")
+print("Loading Whisper model...")
+whisper_model = whisper.load_model("base")
+print("Whisper ready.")
 
 user_sessions = {}
 
@@ -48,6 +50,31 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions.pop(user_id, None)
     await update.message.reply_text("✅ Сессия очищена")
 
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    audio = update.message.voice or update.message.audio
+    if not audio:
+        return
+    status = await update.message.reply_text("⏳ Скачиваю...")
+    suffix = ".ogg" if update.message.voice else ".mp3"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        file = await audio.get_file()
+        await file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+    try:
+        transcribed = whisper_model.transcribe(tmp_path, language="ru")["text"]
+        if not transcribed.strip():
+            await status.edit_text("❌ Речь не распознана")
+            return
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+        user_sessions[user_id]["transcribed_text"] = transcribed
+        await status.edit_text(f"✅ Аудио сохранено:\n{transcribed[:300]}...")
+    except Exception as e:
+        await status.edit_text(f"❌ Ошибка: {e}")
+    finally:
+        os.unlink(tmp_path)
+
 async def set_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = " ".join(context.args)
@@ -73,8 +100,8 @@ async def set_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = user_sessions.get(user_id, {})
-    if not any([data.get("vacancy_text"), data.get("resume_text")]):
-        await update.message.reply_text("❌ Нет данных для сохранения. Сначала отправьте /vacancy и /resume")
+    if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
+        await update.message.reply_text("❌ Нет данных для сохранения")
         return
     name = " ".join(context.args) if context.args else "Кандидат без имени"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
@@ -237,96 +264,22 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❓ Используйте команды из /start")
-
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data == "analyze":
-        await query.edit_message_text("📄 /vacancy и /resume, затем /analyze")
-    elif data == "vacancies":
-        headers = {"X-API-Key": API_KEY}
-        try:
-            r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
-            if r.status_code == 200:
-                vacs = r.json()
-                if not vacs:
-                    await query.edit_message_text("📭 Нет вакансий")
-                    return
-                msg = "💼 Вакансии:\n"
-                for v in vacs:
-                    msg += f"\n🆔 {v['id']} — {v['title']}"
-                await query.edit_message_text(msg)
-            else:
-                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Ошибка: {e}")
-    elif data == "candidates":
-        headers = {"X-API-Key": API_KEY}
-        try:
-            r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
-            if r.status_code == 200:
-                cands = r.json()
-                if not cands:
-                    await query.edit_message_text("📭 Нет кандидатов")
-                    return
-                msg = "📋 Кандидаты:\n"
-                for c in cands:
-                    msg += f"\n🆔 {c['id']} — {c['name']}"
-                await query.edit_message_text(msg)
-            else:
-                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Ошибка: {e}")
-    elif data == "benchmark":
-        await query.edit_message_text("📊 /benchmark IT 50 15 45 350000")
-    elif data == "workforce":
-        await query.edit_message_text("🏭 /workforce <задачи> | <штат>")
-    elif data == "volunteer":
-        await query.edit_message_text("🤝 /volunteer")
-    elif data == "help":
-        await query.edit_message_text(
-            "📋 Команды:\n"
-            "/analyze - анализ\n"
-            "/vacancies - вакансии\n"
-            "/candidates - кандидаты\n"
-            "/add_vacancy - добавить\n"
-            "/match_all - матчинг\n"
-            "/save - сохранить\n"
-            "/rate - оценить\n"
-            "/reset - очистить"
-        )
-
 async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
-    if len(args) < 2:
-        await update.message.reply_text(
-            "🤝 *Добавление волонтёрской вакансии*\n\n"
-            "Использование:\n"
-            "/add_volunteer <название> | <описание> | <требования> | <организация>\n\n"
-            "Пример:\n"
-            "/add_volunteer Помощь в приюте | Уборка, кормление | Ответственность | Добросерд",
-            parse_mode="Markdown"
-        )
+    if len(args) < 1:
+        await update.message.reply_text("🤝 /add_volunteer <название> | <описание>")
         return
-    
     title = args[0]
     desc = " ".join(args[1:]) if len(args) > 1 else ""
-    
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-    payload = {"title": title, "description": desc}
-    
     try:
-        r = requests.post(f"{API_URL}/api/volunteer/add", json=payload, headers=headers, timeout=30)
+        r = requests.post(f"{API_URL}/api/volunteer/add", json={"title": title, "description": desc}, headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Волонтёрская вакансия «{title}» добавлена")
         else:
             await update.message.reply_text(f"❌ Ошибка: {r.status_code}")
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
-
 
 async def list_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
@@ -414,6 +367,58 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ Используйте команды из /start")
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "analyze":
+        await query.edit_message_text("📄 /vacancy и /resume, затем /analyze")
+    elif data == "vacancies":
+        headers = {"X-API-Key": API_KEY}
+        try:
+            r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
+            if r.status_code == 200:
+                vacs = r.json()
+                if not vacs:
+                    await query.edit_message_text("📭 Нет вакансий")
+                    return
+                msg = "💼 Вакансии:\n"
+                for v in vacs:
+                    msg += f"\n🆔 {v['id']} — {v['title']}"
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {e}")
+    elif data == "candidates":
+        headers = {"X-API-Key": API_KEY}
+        try:
+            r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
+            if r.status_code == 200:
+                cands = r.json()
+                if not cands:
+                    await query.edit_message_text("📭 Нет кандидатов")
+                    return
+                msg = "📋 Кандидаты:\n"
+                for c in cands:
+                    msg += f"\n🆔 {c['id']} — {c['name']}"
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {e}")
+    elif data == "benchmark":
+        await query.edit_message_text("📊 /benchmark IT 50 15 45 350000")
+    elif data == "workforce":
+        await query.edit_message_text("🏭 /workforce <задачи> | <штат>")
+    elif data == "volunteer":
+        await query.edit_message_text("🤝 /volunteer")
+    elif data == "help":
+        await query.edit_message_text("❓ /analyze, /vacancies, /candidates, /add_vacancy, /match_all")
+
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -432,44 +437,10 @@ def main():
     app.add_handler(CommandHandler("volunteer", list_volunteer))
     app.add_handler(CommandHandler("assess_employee", assess_employee))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot started (light version, no audio).")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
-
-    payload = {
-        "employee_name": employee_name,
-        "position": position,
-        "raw_text": raw_text
-    }
-    
-    status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
-    
-    try:
-        response = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
-        if response.status_code == 200:
-            data = response.json()
-            assessment = data["assessment"]
-            
-            message = f"📊 *Оценка сотрудника: {employee_name}*\n\n"
-            message += f"📋 *Должность:* {position}\n\n"
-            message += "📈 *Оценки (1-10):*\n"
-            message += f"   🦁 Лидерские качества: {assessment['leadership_score']}/10\n"
-            message += f"   🧠 Стрессоустойчивость: {assessment['stress_resilience_score']}/10\n"
-            message += f"   💬 Коммуникабельность: {assessment['communication_score']}/10\n"
-            message += f"   📚 Обучаемость: {assessment['learnability_score']}/10\n"
-            message += f"   🎯 Ответственность: {assessment['responsibility_score']}/10\n\n"
-            message += f"✅ *Сильные стороны:* {assessment['strengths']}\n\n"
-            message += f"📈 *Зоны роста:* {assessment['growth_points']}\n\n"
-            message += f"💡 *Рекомендации:* {assessment['recommendations']}\n\n"
-            message += f"⚠️ *Риск выгорания:* {assessment['burnout_risk']}"
-            
-            await update.message.reply_text(message, parse_mode="Markdown")
-            await status_msg.delete()
-        else:
-            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {e}")

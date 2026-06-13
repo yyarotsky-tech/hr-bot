@@ -309,7 +309,7 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
     
     try:
-        r = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=90)
+        r = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=120)
         if r.status_code == 200:
             data = r.json()
             a = data["assessment"]

@@ -77,7 +77,7 @@ async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = " ".join(context.args) if context.args else "Кандидат без имени"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/candidates/save", json={"name": name, "data": data}, headers=headers, timeout=90)
+        r = requests.post(f"{API_URL}/api/candidates/save", json={"name": name, "data": data}, headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ {name} сохранён (ID: {r.json()['id']})")
         else:
@@ -88,7 +88,7 @@ async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_candidates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=90)
+        r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
         if r.status_code == 200:
             cands = r.json()
             if not cands:
@@ -116,7 +116,7 @@ async def rate_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         comment = " ".join(args[2:]) if len(args) > 2 else None
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-        r = requests.post(f"{API_URL}/api/rate", json={"candidate_id": cid, "rating": rating, "comment": comment}, headers=headers, timeout=90)
+        r = requests.post(f"{API_URL}/api/rate", json={"candidate_id": cid, "rating": rating, "comment": comment}, headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Оценка {rating} для {cid}")
         else:
@@ -133,7 +133,7 @@ async def add_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     desc = " ".join(args[1:]) if len(args) > 1 else ""
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/vacancies/add", json={"title": title, "description": desc}, headers=headers, timeout=90)
+        r = requests.post(f"{API_URL}/api/vacancies/add", json={"title": title, "description": desc}, headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Вакансия «{title}» добавлена (ID: {r.json()['id']})")
         else:
@@ -144,7 +144,7 @@ async def add_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_vacancies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=90)
+        r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
         if r.status_code == 200:
             vacs = r.json()
             if not vacs:
@@ -167,7 +167,7 @@ async def delete_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         vid = int(args[0])
         headers = {"X-API-Key": API_KEY}
-        r = requests.delete(f"{API_URL}/api/vacancies/{vid}", headers=headers, timeout=90)
+        r = requests.delete(f"{API_URL}/api/vacancies/{vid}", headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Вакансия {vid} удалена")
         else:
@@ -244,7 +244,7 @@ async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     desc = " ".join(args[1:]) if len(args) > 1 else ""
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/volunteer/add", json={"title": title, "description": desc}, headers=headers, timeout=90)
+        r = requests.post(f"{API_URL}/api/volunteer/add", json={"title": title, "description": desc}, headers=headers, timeout=30)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Волонтёрская вакансия «{title}» добавлена")
         else:
@@ -255,7 +255,7 @@ async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/volunteer", headers=headers, timeout=90)
+        r = requests.get(f"{API_URL}/api/volunteer", headers=headers, timeout=30)
         if r.status_code == 200:
             vacs = r.json()
             if not vacs:
@@ -332,67 +332,79 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ Используйте команды из /start")
 
-async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    headers = {"X-API-Key": API_KEY}
-    status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
-    
-    try:
-        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=90)
-        
-        if response.status_code == 200:
-            data = response.json()
-            assessments = data.get("assessments", [])
-            summary = data.get("summary", {})
-            
-            # Если summary — строка (нет оценённых сотрудников)
-            if isinstance(summary, str):
-                await update.message.reply_text(f"📊 *Сводка по команде*
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "analyze":
+        await query.edit_message_text("📄 /vacancy и /resume, затем /analyze")
+    elif data == "vacancies":
+        headers = {"X-API-Key": API_KEY}
+        try:
+            r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
+            if r.status_code == 200:
+                vacs = r.json()
+                if not vacs:
+                    await query.edit_message_text("📭 Нет вакансий")
+                    return
+                msg = "💼 Вакансии:\n"
+                for v in vacs:
+                    msg += f"\n🆔 {v['id']} — {v['title']}"
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {e}")
+    elif data == "candidates":
+        headers = {"X-API-Key": API_KEY}
+        try:
+            r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
+            if r.status_code == 200:
+                cands = r.json()
+                if not cands:
+                    await query.edit_message_text("📭 Нет кандидатов")
+                    return
+                msg = "📋 Кандидаты:\n"
+                for c in cands:
+                    msg += f"\n🆔 {c['id']} — {c['name']}"
+                await query.edit_message_text(msg)
+            else:
+                await query.edit_message_text(f"❌ Ошибка: {r.status_code}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Ошибка: {e}")
+    elif data == "benchmark":
+        await query.edit_message_text("📊 /benchmark IT 50 15 45 350000")
+    elif data == "workforce":
+        await query.edit_message_text("🏭 /workforce <задачи> | <штат>")
+    elif data == "volunteer":
+        await query.edit_message_text("🤝 /volunteer")
+    elif data == "help":
+        await query.edit_message_text("❓ /analyze, /vacancies, /candidates, /add_vacancy, /match_all")
 
-{summary}")
-                await status_msg.delete()
-                return
-            
-            message = f"📊 *Сводка по команде*
+def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("vacancy", set_vacancy))
+    app.add_handler(CommandHandler("resume", set_resume))
+    app.add_handler(CommandHandler("analyze", analyze))
+    app.add_handler(CommandHandler("save", save_current))
+    app.add_handler(CommandHandler("candidates", list_candidates))
+    app.add_handler(CommandHandler("rate", rate_candidate))
+    app.add_handler(CommandHandler("add_vacancy", add_vacancy))
+    app.add_handler(CommandHandler("vacancies", list_vacancies))
+    app.add_handler(CommandHandler("delete_vacancy", delete_vacancy))
+    app.add_handler(CommandHandler("match_all", match_all))
+    app.add_handler(CommandHandler("add_volunteer", add_volunteer))
+    app.add_handler(CommandHandler("volunteer", list_volunteer))
+    app.add_handler(CommandHandler("assess_employee", assess_employee))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    print("Bot started.")
+    app.run_polling()
 
-"
-            message += f"👥 *Всего сотрудников:* {summary.get('total_employees', 0)}
-
-"
-            message += "📈 *Средние оценки (1-10):*
-"
-            message += f"   🦁 Лидерские качества: {summary.get('avg_leadership', 0)}/10
-"
-            message += f"   🧠 Стрессоустойчивость: {summary.get('avg_stress_resilience', 0)}/10
-"
-            message += f"   💬 Коммуникабельность: {summary.get('avg_communication', 0)}/10
-"
-            message += f"   📚 Обучаемость: {summary.get('avg_learnability', 0)}/10
-"
-            message += f"   🎯 Ответственность: {summary.get('avg_responsibility', 0)}/10
-
-"
-            message += "⚠️ *Риск выгорания:*
-"
-            burnout = summary.get('burnout_risk_distribution', {})
-            message += f"   🔴 Высокий: {burnout.get('высокий', 0)}
-"
-            message += f"   🟡 Средний: {burnout.get('средний', 0)}
-"
-            message += f"   🟢 Низкий: {burnout.get('низкий', 0)}
-"
-            
-            if assessments:
-                message += "
-📋 *Последние оценки:*
-"
-                for a in assessments[:5]:
-                    message += f"   • {a.get('employee_name', '?')} — лидерство: {a.get('leadership_score', 0)}/10
-"
-            
-            await update.message.reply_text(message, parse_mode="Markdown")
-            await status_msg.delete()
-        else:
-            await status_msg.edit_text(f"❌ Ошибка HTTP {response.status_code}: {response.text[:200]}")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Ошибка: {e}")
+if __name__ == "__main__":
+    main()

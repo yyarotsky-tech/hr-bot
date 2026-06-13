@@ -77,7 +77,7 @@ async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = " ".join(context.args) if context.args else "Кандидат без имени"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/candidates/save", json={"name": name, "data": data}, headers=headers, timeout=30)
+        r = requests.post(f"{API_URL}/api/candidates/save", json={"name": name, "data": data}, headers=headers, timeout=90)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ {name} сохранён (ID: {r.json()['id']})")
         else:
@@ -88,7 +88,7 @@ async def save_current(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_candidates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
+        r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=90)
         if r.status_code == 200:
             cands = r.json()
             if not cands:
@@ -116,7 +116,7 @@ async def rate_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         comment = " ".join(args[2:]) if len(args) > 2 else None
         headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-        r = requests.post(f"{API_URL}/api/rate", json={"candidate_id": cid, "rating": rating, "comment": comment}, headers=headers, timeout=30)
+        r = requests.post(f"{API_URL}/api/rate", json={"candidate_id": cid, "rating": rating, "comment": comment}, headers=headers, timeout=90)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Оценка {rating} для {cid}")
         else:
@@ -133,7 +133,7 @@ async def add_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     desc = " ".join(args[1:]) if len(args) > 1 else ""
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/vacancies/add", json={"title": title, "description": desc}, headers=headers, timeout=30)
+        r = requests.post(f"{API_URL}/api/vacancies/add", json={"title": title, "description": desc}, headers=headers, timeout=90)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Вакансия «{title}» добавлена (ID: {r.json()['id']})")
         else:
@@ -144,7 +144,7 @@ async def add_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_vacancies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
+        r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=90)
         if r.status_code == 200:
             vacs = r.json()
             if not vacs:
@@ -167,7 +167,7 @@ async def delete_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         vid = int(args[0])
         headers = {"X-API-Key": API_KEY}
-        r = requests.delete(f"{API_URL}/api/vacancies/{vid}", headers=headers, timeout=30)
+        r = requests.delete(f"{API_URL}/api/vacancies/{vid}", headers=headers, timeout=90)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Вакансия {vid} удалена")
         else:
@@ -244,7 +244,7 @@ async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     desc = " ".join(args[1:]) if len(args) > 1 else ""
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     try:
-        r = requests.post(f"{API_URL}/api/volunteer/add", json={"title": title, "description": desc}, headers=headers, timeout=30)
+        r = requests.post(f"{API_URL}/api/volunteer/add", json={"title": title, "description": desc}, headers=headers, timeout=90)
         if r.status_code == 200:
             await update.message.reply_text(f"✅ Волонтёрская вакансия «{title}» добавлена")
         else:
@@ -255,7 +255,7 @@ async def add_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_volunteer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = {"X-API-Key": API_KEY}
     try:
-        r = requests.get(f"{API_URL}/api/volunteer", headers=headers, timeout=30)
+        r = requests.get(f"{API_URL}/api/volunteer", headers=headers, timeout=90)
         if r.status_code == 200:
             vacs = r.json()
             if not vacs:
@@ -309,7 +309,7 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("🧠 Анализирую сотрудника...")
     
     try:
-        r = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=60)
+        r = requests.post(f"{API_URL}/api/employee/assess", json=payload, headers=headers, timeout=90)
         if r.status_code == 200:
             data = r.json()
             a = data["assessment"]
@@ -337,7 +337,7 @@ async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
     
     try:
-        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=30)
+        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=90)
         if response.status_code == 200:
             data = response.json()
             summary = data["summary"]
@@ -381,7 +381,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "vacancies":
         headers = {"X-API-Key": API_KEY}
         try:
-            r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=30)
+            r = requests.get(f"{API_URL}/api/vacancies", headers=headers, timeout=90)
             if r.status_code == 200:
                 vacs = r.json()
                 if not vacs:
@@ -398,7 +398,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "candidates":
         headers = {"X-API-Key": API_KEY}
         try:
-            r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=30)
+            r = requests.get(f"{API_URL}/api/candidates", headers=headers, timeout=90)
             if r.status_code == 200:
                 cands = r.json()
                 if not cands:
@@ -452,7 +452,7 @@ async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
     
     try:
-        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=30)
+        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=90)
         if response.status_code == 200:
             data = response.json()
             summary = data["summary"]

@@ -332,6 +332,43 @@ async def assess_employee(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
 
+async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    headers = {"X-API-Key": API_KEY}
+    status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
+    
+    try:
+        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            summary = data["summary"]
+            
+            message = f"📊 *Сводка по команде*\n\n"
+            message += f"👥 *Всего сотрудников:* {summary['total_employees']}\n\n"
+            message += "📈 *Средние оценки (1-10):*\n"
+            message += f"   🦁 Лидерские качества: {summary['avg_leadership']}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {summary['avg_stress_resilience']}/10\n"
+            message += f"   💬 Коммуникабельность: {summary['avg_communication']}/10\n"
+            message += f"   📚 Обучаемость: {summary['avg_learnability']}/10\n"
+            message += f"   🎯 Ответственность: {summary['avg_responsibility']}/10\n\n"
+            message += "⚠️ *Риск выгорания:*\n"
+            message += f"   🔴 Высокий: {summary['burnout_risk_distribution'].get('высокий', 0)}\n"
+            message += f"   🟡 Средний: {summary['burnout_risk_distribution'].get('средний', 0)}\n"
+            message += f"   🟢 Низкий: {summary['burnout_risk_distribution'].get('низкий', 0)}\n"
+            
+            if summary['total_employees'] > 0:
+                message += "\n📋 *Список сотрудников:*\n"
+                for a in data["assessments"][:10]:
+                    message += f"   • {a['employee_name']} — лидерство: {a['leadership_score']}/10\n"
+                if len(data["assessments"]) > 10:
+                    message += f"\n   ... и ещё {len(data['assessments']) - 10} сотрудников"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка: {e}")
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❓ Используйте команды из /start")
 
@@ -401,6 +438,7 @@ def main():
     app.add_handler(CommandHandler("add_volunteer", add_volunteer))
     app.add_handler(CommandHandler("volunteer", list_volunteer))
     app.add_handler(CommandHandler("assess_employee", assess_employee))
+    app.add_handler(CommandHandler("team_assessment", team_assessment))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Bot started.")
@@ -408,3 +446,40 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    headers = {"X-API-Key": API_KEY}
+    status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
+    
+    try:
+        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            summary = data["summary"]
+            
+            message = f"📊 *Сводка по команде*\n\n"
+            message += f"👥 *Всего сотрудников:* {summary['total_employees']}\n\n"
+            message += "📈 *Средние оценки (1-10):*\n"
+            message += f"   🦁 Лидерские качества: {summary['avg_leadership']}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {summary['avg_stress_resilience']}/10\n"
+            message += f"   💬 Коммуникабельность: {summary['avg_communication']}/10\n"
+            message += f"   📚 Обучаемость: {summary['avg_learnability']}/10\n"
+            message += f"   🎯 Ответственность: {summary['avg_responsibility']}/10\n\n"
+            message += "⚠️ *Риск выгорания:*\n"
+            message += f"   🔴 Высокий: {summary['burnout_risk_distribution'].get('высокий', 0)}\n"
+            message += f"   🟡 Средний: {summary['burnout_risk_distribution'].get('средний', 0)}\n"
+            message += f"   🟢 Низкий: {summary['burnout_risk_distribution'].get('низкий', 0)}\n"
+            
+            if summary['total_employees'] > 0:
+                message += "\n📋 *Список сотрудников:*\n"
+                for a in data["assessments"][:10]:  # топ-10
+                    message += f"   • {a['employee_name']} — лидерство: {a['leadership_score']}/10\n"
+                if len(data["assessments"]) > 10:
+                    message += f"\n   ... и ещё {len(data['assessments']) - 10} сотрудников"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка: {e}")

@@ -483,3 +483,46 @@ async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка: {e}")
+
+async def team_assessment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    headers = {"X-API-Key": API_KEY}
+    status_msg = await update.message.reply_text("📊 Загружаю сводку по команде...")
+    
+    try:
+        response = requests.get(f"{API_URL}/api/employee/team", headers=headers, timeout=90)
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Проверяем, что data — это словарь, а не строка
+            if isinstance(data, str):
+                await status_msg.edit_text(f"❌ Ошибка: API вернул строку вместо JSON: {data[:200]}")
+                return
+            
+            summary = data.get("summary", {})
+            assessments = data.get("assessments", [])
+            
+            message = f"📊 *Сводка по команде*\n\n"
+            message += f"👥 *Всего сотрудников:* {summary.get('total_employees', 0)}\n\n"
+            message += "📈 *Средние оценки (1-10):*\n"
+            message += f"   🦁 Лидерские качества: {summary.get('avg_leadership', 0)}/10\n"
+            message += f"   🧠 Стрессоустойчивость: {summary.get('avg_stress_resilience', 0)}/10\n"
+            message += f"   💬 Коммуникабельность: {summary.get('avg_communication', 0)}/10\n"
+            message += f"   📚 Обучаемость: {summary.get('avg_learnability', 0)}/10\n"
+            message += f"   🎯 Ответственность: {summary.get('avg_responsibility', 0)}/10\n\n"
+            message += "⚠️ *Риск выгорания:*\n"
+            burnout = summary.get('burnout_risk_distribution', {})
+            message += f"   🔴 Высокий: {burnout.get('высокий', 0)}\n"
+            message += f"   🟡 Средний: {burnout.get('средний', 0)}\n"
+            message += f"   🟢 Низкий: {burnout.get('низкий', 0)}\n"
+            
+            if assessments:
+                message += "\n📋 *Последние оценки:*\n"
+                for a in assessments[:5]:
+                    message += f"   • {a.get('employee_name', '?')} — лидерство: {a.get('leadership_score', 0)}/10\n"
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text(f"❌ Ошибка: {response.status_code}")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка: {e}")
